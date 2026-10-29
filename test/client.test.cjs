@@ -115,7 +115,7 @@ function loadClient(primitives) {
       },
     },
   });
-  return { Component, storage, slots, module: loaded };
+  return { Component, storage, slots, module: loaded, id: captured.id };
 }
 
 const main = loadClient(makePrimitives());
@@ -221,6 +221,12 @@ globalThis.setTimeout = (fn, ms, ...rest) => {
 const tick = () => new Promise((resolve) => realSetTimeout(resolve, 10));
 
 // --------------------------------------------------------------------- tests
+test("registers its factory under the package name", () => {
+  // dsh 的 web boot 图按包名查找工厂，id 不一致会让条目永远激活不了。
+  const pkg = require("../package.json");
+  assert.equal(main.id, pkg.name);
+});
+
 test("registers on conversation.input.right with the plugin id", () => {
   assert.equal(main.slots.length, 1);
   assert.equal(main.slots[0].id, "enhance-prompt");

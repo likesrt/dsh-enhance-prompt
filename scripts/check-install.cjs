@@ -25,12 +25,26 @@ const bad = (label, detail) => {
   console.error(`FAIL ${label} — ${detail}`);
 };
 
+/**
+ * Read the id a client bundle hands to the module loader. The bundle is not
+ * loadable outside a browser, so resolve the source instead: a quoted literal
+ * or a top-level constant holding one.
+ */
+function factoryIdOf(source) {
+  const call = /__ModuleLoader__\.load\(\s*\{[\s\S]{0,200}?\bid:\s*([A-Za-z_$][\w$]*|"[^"]*"|'[^']*')/.exec(source);
+  if (call === null) return undefined;
+  const ref = call[1];
+  if (/^["']/.test(ref)) return ref.slice(1, -1);
+  const decl = new RegExp(`(?:const|let|var)\\s+${ref}\\s*=\\s*["']([^"']+)["']`).exec(source);
+  return decl?.[1];
+}
+
 if (!fs.existsSync(path.join(pkgDir, "package.json"))) {
   console.error(`not a package directory: ${pkgDir}`);
   process.exit(2);
 }
 
-// 1. manifest and client declaration
+// 1. manifest, client declaration, and the factory id the bundle registers
 const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
 const decl = pkg.dsh?.client;
 if (decl === undefined) bad("dsh.client declared", "missing dsh.client block");
@@ -42,7 +56,16 @@ if (clientRel === undefined) bad("./client export", "no ./client export");
 else {
   const clientPath = path.join(pkgDir, clientRel);
   if (!fs.existsSync(clientPath)) bad("./client export resolves", clientPath);
-  else ok("./client export resolves", `${path.basename(clientPath)} ${fs.statSync(clientPath).size} bytes`);
+  else {
+    ok("./client export resolves", `${path.basename(clientPath)} ${fs.statSync(clientPath).size} bytes`);
+    // The web boot graph looks factories up by package name. A bundle that
+    // registers any other id loads, never registers, gets re-fetched by its
+    // entry URL and finally trips "duplicate factory registration".
+    const factoryId = factoryIdOf(fs.readFileSync(clientPath, "utf8"));
+    if (factoryId === undefined) bad("client factory id", "no __ModuleLoader__.load({ id }) found");
+    else if (factoryId !== pkg.name) bad("client factory id", `registers ${factoryId}, package is ${pkg.name}`);
+    else ok("client factory id matches package name", factoryId);
+  }
 }
 
 // 2. bundle patch
